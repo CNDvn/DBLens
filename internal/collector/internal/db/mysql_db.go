@@ -23,7 +23,7 @@ func (t *MysqlConnectionManager) newConnectionManager(ctx context.Context, datas
 	return nil
 }
 
-func (t *MysqlConnectionManager) CollectData(ctx context.Context) (map[string]any, error) {
+func (t *MysqlConnectionManager) CollectData(ctx context.Context) (map[string]string, error) {
 	payloadDataLocks, err := t.collectDataFromDB(ctx, "select * from performance_schema.data_locks")
 	if err != nil {
 		return nil, err
@@ -44,17 +44,17 @@ func (t *MysqlConnectionManager) CollectData(ctx context.Context) (map[string]an
 		return nil, err
 	}
 
-	payloadEventsStatementsCurrent, err := t.collectDataFromDB(ctx, "select * from performance_schema.events_statements_current")
+	payloadEventsStatement, err := t.collectDataFromDB(ctx, "select * from performance_schema.events_statements_current")
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"payloadDataLocks":               payloadDataLocks,
-		"payloadDataLockWaits":           payloadDataLockWaits,
-		"payloadInnoDBTrx":               payloadInnoDBTrx,
-		"payloadThreads":                 payloadThreads,
-		"payloadEventsStatementsCurrent": payloadEventsStatementsCurrent,
+	return map[string]string{
+		"payloadDataLocks":       payloadDataLocks,
+		"payloadDataLockWaits":   payloadDataLockWaits,
+		"payloadInnoDBTrx":       payloadInnoDBTrx,
+		"payloadThreads":         payloadThreads,
+		"payloadEventsStatement": payloadEventsStatement,
 	}, nil
 }
 

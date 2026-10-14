@@ -12,10 +12,13 @@
 DBLens thu thập dữ liệu chẩn đoán từ MySQL, lưu dữ liệu nguồn ở Layer 1, chuẩn hóa ở Layer 2 và phân tích tình trạng lock contention ở Layer 3.
 
 Tài liệu này tập trung vào:
+
 - Mục đích, cách sử dụng và ý nghĩa từng cột trong các bảng ERD.
 - Các cột thực tế được thu thập từ MySQL và lưu trong `payload` của từng bảng Raw.
 - Ý nghĩa của từng cột nguồn trong `performance_schema` và `information_schema`.
 - Quan hệ giữa các layer, quy trình xử lý và các lưu ý khi triển khai.
+
+
 
 ## 2. Nguyên tắc thiết kế
 
@@ -25,6 +28,8 @@ Tài liệu này tập trung vào:
 4. **ID từ MySQL không phải ID DBLens:** `THREAD_ID`, `PROCESSLIST_ID`, transaction ID và lock ID có phạm vi/ý nghĩa khác nhau. Không dùng trực tiếp làm khóa chính nội bộ.
 5. **Snapshot là trạng thái được quan sát:** Không phải event log đầy đủ. Lock xuất hiện rồi biến mất giữa hai lần polling có thể không được ghi nhận.
 6. **Chú ý dữ liệu nhạy cảm:** SQL text, user, host và lock data có thể chứa thông tin nhạy cảm. Nên hỗ trợ redaction và retention.
+
+
 
 ## 3. Kiến trúc tổng quan
 
@@ -49,6 +54,10 @@ flowchart LR
     ANALYSIS --> API
 ```
 
+
+
+
+
 ### Layer 1 — Raw Store
 
 Lưu các cột được thu thập từ các bảng/view nguồn của MySQL, giữ tên và giá trị nguồn càng sát càng tốt. DBLens vẫn cần metadata riêng như `snapshot_id` và `collected_at` để quản lý batch và thời gian thu thập, nhưng không cần lặp lại chúng trong `payload`.
@@ -63,14 +72,18 @@ Lưu blocking graph, node, edge và các finding do Analyzer tạo ra.
 
 ---
 
+
+
 ## 4. Các nguồn MySQL được sử dụng
 
-| Bảng Raw của DBLens | Nguồn MySQL chính | Dữ liệu thu thập |
-|---|---|---|
-| `raw_lock_records` | `performance_schema.data_locks` | Thông tin lock, object, mode, status, thread và transaction liên quan. |
-| `raw_wait_records` | `performance_schema.data_lock_waits` | Quan hệ giữa lock đang được yêu cầu và lock đang chặn nó. |
+
+| Bảng Raw của DBLens       | Nguồn MySQL chính                                                            | Dữ liệu thu thập                                                                               |
+| ------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `raw_lock_records`        | `performance_schema.data_locks`                                              | Thông tin lock, object, mode, status, thread và transaction liên quan.                         |
+| `raw_wait_records`        | `performance_schema.data_lock_waits`                                         | Quan hệ giữa lock đang được yêu cầu và lock đang chặn nó.                                      |
 | `raw_transaction_records` | `information_schema.innodb_trx`, có thể bổ sung `performance_schema.threads` | Trạng thái transaction, thời gian bắt đầu, thời gian chờ, connection/thread và query hiện tại. |
-| `raw_statement_records` | `performance_schema.events_statements_current`; history tables là tùy chọn | SQL text/digest, timing và các bộ đếm statement nếu có. |
+| `raw_statement_records`   | `performance_schema.events_statements_current`; history tables là tùy chọn   | SQL text/digest, timing và các bộ đếm statement nếu có.                                        |
+
 
 **Lưu ý tương thích:** Tài liệu này mô tả MySQL 8.0+. MySQL 5.7 dùng các nguồn lock khác, thường gồm `information_schema.innodb_locks` và `information_schema.innodb_lock_waits`. Cần adapter riêng nếu hỗ trợ 5.7. Các cột có thể khác theo phiên bản, vì vậy Collector nên kiểm tra schema thực tế.
 
@@ -78,7 +91,11 @@ Lưu blocking graph, node, edge và các finding do Analyzer tạo ra.
 
 ---
 
+
+
 ## 5. Layer 1 — Raw Store
+
+
 
 ### 5.1. `sources`
 
@@ -88,13 +105,17 @@ Lưu blocking graph, node, edge và các finding do Analyzer tạo ra.
 
 **Nguồn dữ liệu:** Được tạo/quản lý bởi DBLens, không lấy từ MySQL.
 
-| Cột | Ý nghĩa |
-|---|---|
-| `id` | Khóa chính nội bộ do DBLens sinh ra. |
-| `name` | Tên dễ nhận biết, ví dụ `payments-staging`. |
-| `db_type` | Loại database, ban đầu là `mysql`. |
-| `config` | Cấu hình không nhạy cảm như host, port, database name và tùy chọn collector. Không lưu password dạng plaintext. |
-| `created_at` | Thời điểm đăng ký source. |
+
+| Cột          | Ý nghĩa                                                                                                         |
+| ------------ | --------------------------------------------------------------------------------------------------------------- |
+| `id`         | Khóa chính nội bộ do DBLens sinh ra.                                                                            |
+| `name`       | Tên dễ nhận biết, ví dụ `payments-staging`.                                                                     |
+| `db_type`    | Loại database, ban đầu là `mysql`.                                                                              |
+| `config`     | Cấu hình không nhạy cảm như host, port, database name và tùy chọn collector. Không lưu password dạng plaintext. |
+| `created_at` | Thời điểm đăng ký source.                                                                                       |
+
+
+
 
 ### 5.2. `snapshots`
 
@@ -104,26 +125,32 @@ Lưu blocking graph, node, edge và các finding do Analyzer tạo ra.
 
 **Nguồn dữ liệu:** Do Collector tạo và cập nhật.
 
-| Cột | Ý nghĩa |
-|---|---|
-| `id` | ID snapshot do DBLens sinh ra. |
-| `source_id` | FK đến `sources.id`, xác định database được thu thập. |
-| `capture_started_at` | Thời điểm bắt đầu thu thập. |
-| `capture_finished_at` | Thời điểm kết thúc thu thập; có thể `NULL` nếu chưa hoàn tất. |
-| `status` | Trạng thái đề xuất: `collecting`, `collected`, `processing`, `processed`, `failed`. |
-| `attempt_count` | Số lần worker thử xử lý snapshot; cần định nghĩa rõ là số lần normalize hay tổng số lần xử lý. |
-| `last_error` | Lỗi gần nhất, không chứa secret hoặc SQL nhạy cảm. |
-| `processed_at` | Thời điểm normalize thành công. |
+
+| Cột                   | Ý nghĩa                                                                                        |
+| --------------------- | ---------------------------------------------------------------------------------------------- |
+| `id`                  | ID snapshot do DBLens sinh ra.                                                                 |
+| `source_id`           | FK đến `sources.id`, xác định database được thu thập.                                          |
+| `capture_started_at`  | Thời điểm bắt đầu thu thập.                                                                    |
+| `capture_finished_at` | Thời điểm kết thúc thu thập; có thể `NULL` nếu chưa hoàn tất.                                  |
+| `status`              | Trạng thái đề xuất: `collecting`, `collected`, `processing`, `processed`, `failed`.            |
+| `attempt_count`       | Số lần worker thử xử lý snapshot; cần định nghĩa rõ là số lần normalize hay tổng số lần xử lý. |
+| `last_error`          | Lỗi gần nhất, không chứa secret hoặc SQL nhạy cảm.                                             |
+| `processed_at`        | Thời điểm normalize thành công.                                                                |
+
 
 Index đề xuất:
+
 - `(source_id, capture_started_at DESC)` để truy vấn lịch sử source.
 - `(status, capture_started_at)` để worker tìm snapshot cần xử lý.
+
+
 
 ### 5.3. Cách thiết kế `payload`
 
 `payload` nên chứa **các cột thực tế lấy từ bảng/view MySQL tương ứng**, không cần chứa lại các metadata DBLens đã có ở cột ngoài.
 
 Ví dụ `raw_wait_records` có:
+
 - `snapshot_id`: đã có ở bảng Raw.
 - `collected_at`: đã có ở bảng Raw.
 - `payload`: chỉ chứa các cột từ `performance_schema.data_lock_waits`.
@@ -148,7 +175,7 @@ Ví dụ payload:
 
 Đây là JSON biểu diễn một dòng nguồn. Khi triển khai, nên serialize kết quả truy vấn bằng cách giữ tên cột MySQL. Với identifier lớn, ưu tiên cách serialize không làm mất độ chính xác; một số ID có thể được lưu dạng chuỗi trong JSON.
 
-**Không đưa vào `payload` mặc định:** `snapshot_id`, `collected_at`, `source_id` hoặc các trường quản lý nội bộ DBLens. Nếu sau này cần lưu provenance chi tiết như server version hoặc tên bảng nguồn, có thể đặt metadata đó ở cột riêng hoặc thêm envelope có chủ đích, nhưng tránh lặp lại thông tin đã có.
+**Không đưa vào** `payload` **mặc định:** `snapshot_id`, `collected_at`, `source_id` hoặc các trường quản lý nội bộ DBLens. Nếu sau này cần lưu provenance chi tiết như server version hoặc tên bảng nguồn, có thể đặt metadata đó ở cột riêng hoặc thêm envelope có chủ đích, nhưng tránh lặp lại thông tin đã có.
 
 ### 5.4. `raw_lock_records`
 
@@ -158,12 +185,16 @@ Ví dụ payload:
 
 **Dùng để:** Biết lock nào tồn tại, lock thuộc object nào, mode/status ra sao và liên kết với transaction/thread nào.
 
-| Cột DBLens | Ý nghĩa |
-|---|---|
-| `id` | ID dòng nội bộ của DBLens. |
-| `snapshot_id` | Snapshot chứa dòng raw. |
-| `payload` | JSONB gồm các cột nguồn của `performance_schema.data_locks`. |
-| `collected_at` | Thời điểm DBLens ghi nhận dòng này. |
+
+| Cột DBLens     | Ý nghĩa                                                      |
+| -------------- | ------------------------------------------------------------ |
+| `id`           | ID dòng nội bộ của DBLens.                                   |
+| `snapshot_id`  | Snapshot chứa dòng raw.                                      |
+| `payload`      | JSONB gồm các cột nguồn của `performance_schema.data_locks`. |
+| `collected_at` | Thời điểm DBLens ghi nhận dòng này.                          |
+
+
+
 
 #### Schema `payload` — `performance_schema.data_locks`
 
@@ -189,23 +220,25 @@ Ví dụ:
 }
 ```
 
-| Cột nguồn | Ý nghĩa |
-|---|---|
-| `ENGINE` | Storage engine gắn với lock, thường là `INNODB`. |
-| `ENGINE_LOCK_ID` | Định danh lock do engine cung cấp. Xem là opaque và chỉ dùng trong ngữ cảnh nguồn/snapshot; không dùng làm PK DBLens. |
-| `ENGINE_TRANSACTION_ID` | Transaction ID InnoDB liên quan đến lock, nếu có. Có thể được trả về dạng số/chuỗi; cần bảo toàn độ chính xác. |
-| `THREAD_ID` | ID thread nội bộ của Performance Schema. Không phải `PROCESSLIST_ID`/connection ID. |
-| `EVENT_ID` | ID event trong thread nếu có. Hữu ích khi đối chiếu với statement event. |
-| `OBJECT_SCHEMA` | Schema chứa đối tượng bị lock. |
-| `OBJECT_NAME` | Tên bảng/đối tượng bị lock. |
-| `PARTITION_NAME` | Tên partition nếu đối tượng thuộc partition. |
-| `SUBPARTITION_NAME` | Tên subpartition nếu có. |
-| `INDEX_NAME` | Index liên quan đến lock nếu có. |
-| `OBJECT_INSTANCE_BEGIN` | Địa chỉ/định danh instance nội bộ do MySQL cung cấp. Xem như opaque, không dùng làm định danh bền vững qua snapshot. |
-| `LOCK_TYPE` | Loại lock, thường là `TABLE` hoặc `RECORD`. |
-| `LOCK_MODE` | Mode lock do MySQL báo cáo, ví dụ `S`, `X`, `IS`, `IX` hoặc mode chi tiết như `X,REC_NOT_GAP`. Giữ nguyên giá trị nguồn ở Raw. |
-| `LOCK_STATUS` | Trạng thái lock, thường là `GRANTED` hoặc `WAITING`. |
-| `LOCK_DATA` | Dữ liệu gắn với lock, có thể là giá trị khóa index. Có thể `NULL` và có thể làm lộ dữ liệu nghiệp vụ; cân nhắc che hoặc bỏ qua. |
+
+| Cột nguồn               | Ý nghĩa                                                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `ENGINE`                | Storage engine gắn với lock, thường là `INNODB`.                                                                                |
+| `ENGINE_LOCK_ID`        | Định danh lock do engine cung cấp. Xem là opaque và chỉ dùng trong ngữ cảnh nguồn/snapshot; không dùng làm PK DBLens.           |
+| `ENGINE_TRANSACTION_ID` | Transaction ID InnoDB liên quan đến lock, nếu có. Có thể được trả về dạng số/chuỗi; cần bảo toàn độ chính xác.                  |
+| `THREAD_ID`             | ID thread nội bộ của Performance Schema. Không phải `PROCESSLIST_ID`/connection ID.                                             |
+| `EVENT_ID`              | ID event trong thread nếu có. Hữu ích khi đối chiếu với statement event.                                                        |
+| `OBJECT_SCHEMA`         | Schema chứa đối tượng bị lock.                                                                                                  |
+| `OBJECT_NAME`           | Tên bảng/đối tượng bị lock.                                                                                                     |
+| `PARTITION_NAME`        | Tên partition nếu đối tượng thuộc partition.                                                                                    |
+| `SUBPARTITION_NAME`     | Tên subpartition nếu có.                                                                                                        |
+| `INDEX_NAME`            | Index liên quan đến lock nếu có.                                                                                                |
+| `OBJECT_INSTANCE_BEGIN` | Địa chỉ/định danh instance nội bộ do MySQL cung cấp. Xem như opaque, không dùng làm định danh bền vững qua snapshot.            |
+| `LOCK_TYPE`             | Loại lock, thường là `TABLE` hoặc `RECORD`.                                                                                     |
+| `LOCK_MODE`             | Mode lock do MySQL báo cáo, ví dụ `S`, `X`, `IS`, `IX` hoặc mode chi tiết như `X,REC_NOT_GAP`. Giữ nguyên giá trị nguồn ở Raw.  |
+| `LOCK_STATUS`           | Trạng thái lock, thường là `GRANTED` hoặc `WAITING`.                                                                            |
+| `LOCK_DATA`             | Dữ liệu gắn với lock, có thể là giá trị khóa index. Có thể `NULL` và có thể làm lộ dữ liệu nghiệp vụ; cân nhắc che hoặc bỏ qua. |
+
 
 **Ghi chú:** Tập cột và giá trị thực tế cần được xác minh theo phiên bản MySQL. Collector nên lưu các cột mà truy vấn nguồn thực sự trả về, không tự điền các cột không tồn tại.
 
@@ -217,12 +250,16 @@ Ví dụ:
 
 **Dùng để:** Xác định waiter/blocker và làm đầu vào xây dựng `normalized_lock_waits`.
 
-| Cột DBLens | Ý nghĩa |
-|---|---|
-| `id` | ID dòng nội bộ DBLens. |
-| `snapshot_id` | Snapshot chứa dòng raw. |
-| `payload` | JSONB gồm các cột nguồn của `performance_schema.data_lock_waits`. |
-| `collected_at` | Thời điểm DBLens ghi nhận dòng này. |
+
+| Cột DBLens     | Ý nghĩa                                                           |
+| -------------- | ----------------------------------------------------------------- |
+| `id`           | ID dòng nội bộ DBLens.                                            |
+| `snapshot_id`  | Snapshot chứa dòng raw.                                           |
+| `payload`      | JSONB gồm các cột nguồn của `performance_schema.data_lock_waits`. |
+| `collected_at` | Thời điểm DBLens ghi nhận dòng này.                               |
+
+
+
 
 #### Schema `payload` — `performance_schema.data_lock_waits`
 
@@ -244,19 +281,21 @@ Ví dụ:
 }
 ```
 
-| Cột nguồn | Ý nghĩa |
-|---|---|
-| `ENGINE` | Storage engine của quan hệ chờ, thường là `INNODB`. |
-| `REQUESTING_ENGINE_LOCK_ID` | ID lock mà transaction đang yêu cầu nhưng chưa được cấp. Có thể đối chiếu với `data_locks.ENGINE_LOCK_ID` trong cùng snapshot. |
-| `REQUESTING_ENGINE_TRANSACTION_ID` | Transaction ID của bên yêu cầu lock. |
-| `REQUESTING_THREAD_ID` | Performance Schema thread ID của bên đang chờ. |
-| `REQUESTING_EVENT_ID` | Event ID của thao tác yêu cầu lock nếu có. |
-| `REQUESTING_OBJECT_INSTANCE_BEGIN` | Địa chỉ/định danh instance của lock được yêu cầu nếu có. Xem là opaque. |
-| `BLOCKING_ENGINE_LOCK_ID` | ID lock đang chặn yêu cầu. |
-| `BLOCKING_ENGINE_TRANSACTION_ID` | Transaction ID của bên giữ lock chặn. |
-| `BLOCKING_THREAD_ID` | Performance Schema thread ID của bên đang chặn. |
-| `BLOCKING_EVENT_ID` | Event ID của thao tác blocking nếu có. |
-| `BLOCKING_OBJECT_INSTANCE_BEGIN` | Địa chỉ/định danh instance của lock chặn nếu có. Xem là opaque. |
+
+| Cột nguồn                          | Ý nghĩa                                                                                                                        |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `ENGINE`                           | Storage engine của quan hệ chờ, thường là `INNODB`.                                                                            |
+| `REQUESTING_ENGINE_LOCK_ID`        | ID lock mà transaction đang yêu cầu nhưng chưa được cấp. Có thể đối chiếu với `data_locks.ENGINE_LOCK_ID` trong cùng snapshot. |
+| `REQUESTING_ENGINE_TRANSACTION_ID` | Transaction ID của bên yêu cầu lock.                                                                                           |
+| `REQUESTING_THREAD_ID`             | Performance Schema thread ID của bên đang chờ.                                                                                 |
+| `REQUESTING_EVENT_ID`              | Event ID của thao tác yêu cầu lock nếu có.                                                                                     |
+| `REQUESTING_OBJECT_INSTANCE_BEGIN` | Địa chỉ/định danh instance của lock được yêu cầu nếu có. Xem là opaque.                                                        |
+| `BLOCKING_ENGINE_LOCK_ID`          | ID lock đang chặn yêu cầu.                                                                                                     |
+| `BLOCKING_ENGINE_TRANSACTION_ID`   | Transaction ID của bên giữ lock chặn.                                                                                          |
+| `BLOCKING_THREAD_ID`               | Performance Schema thread ID của bên đang chặn.                                                                                |
+| `BLOCKING_EVENT_ID`                | Event ID của thao tác blocking nếu có.                                                                                         |
+| `BLOCKING_OBJECT_INSTANCE_BEGIN`   | Địa chỉ/định danh instance của lock chặn nếu có. Xem là opaque.                                                                |
+
 
 **Cách hiểu:** Một dòng trong `data_lock_waits` là một quan hệ wait, không phải bản mô tả đầy đủ của lock. Cần đối chiếu với `data_locks` để lấy mode, object và status. Vì trạng thái có thể thay đổi trong lúc Collector truy vấn, không đảm bảo mọi bản ghi ở hai nguồn đều có thể ghép được hoàn hảo.
 
@@ -268,14 +307,17 @@ Ví dụ:
 
 **Dùng để:** Tạo `normalized_transactions` và bổ sung ngữ cảnh cho blocking graph.
 
-| Cột DBLens | Ý nghĩa |
-|---|---|
-| `id` | ID dòng Raw nội bộ DBLens. |
-| `snapshot_id` | Snapshot chứa bản ghi. |
-| `payload` | JSONB gồm các cột nguồn transaction. Nếu ghép nhiều nguồn, nên chia object theo tên nguồn để tránh nhầm lẫn cột. |
-| `collected_at` | Thời điểm DBLens ghi nhận dòng này. |
+
+| Cột DBLens     | Ý nghĩa                                                                                                          |
+| -------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `id`           | ID dòng Raw nội bộ DBLens.                                                                                       |
+| `snapshot_id`  | Snapshot chứa bản ghi.                                                                                           |
+| `payload`      | JSONB gồm các cột nguồn transaction. Nếu ghép nhiều nguồn, nên chia object theo tên nguồn để tránh nhầm lẫn cột. |
+| `collected_at` | Thời điểm DBLens ghi nhận dòng này.                                                                              |
+
 
 Có hai cách triển khai:
+
 1. **Một payload chỉ chứa một dòng nguồn:** lưu dòng `innodb_trx` trong `raw_transaction_records`, và lưu thread/session metadata ở bảng raw riêng hoặc `raw_statement_records`.
 2. **Payload tổng hợp:** ghép dòng `innodb_trx` với dòng thread tương ứng, nhưng cần đánh dấu rõ mỗi nhóm cột đến từ bảng nào.
 
@@ -317,51 +359,57 @@ Ví dụ:
 
 Các cột `information_schema.innodb_trx` có thể khác theo phiên bản. Hãy kiểm tra schema của đúng MySQL version mà DBLens hỗ trợ.
 
-| Cột nguồn | Ý nghĩa |
-|---|---|
-| `trx_id` | ID transaction InnoDB. Đây là ID nguồn, không phải PK DBLens. |
-| `trx_state` | Trạng thái transaction, ví dụ `RUNNING` hoặc `LOCK WAIT`. |
-| `trx_started` | Thời điểm transaction bắt đầu. Dùng để tính tuổi transaction. |
-| `trx_requested_lock_id` | ID lock mà transaction đang chờ, nếu có. Có thể đối chiếu với lock ID nguồn. |
-| `trx_wait_started` | Thời điểm bắt đầu chờ lock, nếu đang chờ. |
-| `trx_weight` | Trọng số transaction theo cách InnoDB dùng để đánh giá chi phí rollback tương đối; không phải thời gian chờ. |
-| `trx_mysql_thread_id` | MySQL connection/processlist ID gắn với transaction. Khác với Performance Schema `THREAD_ID`. |
-| `trx_query` | Query hiện tại của transaction nếu có. Có thể chứa literal nhạy cảm. |
-| `trx_operation_state` | Trạng thái thao tác InnoDB hiện tại nếu có. |
-| `trx_tables_in_use` | Số bảng transaction đang sử dụng theo metadata InnoDB. |
-| `trx_tables_locked` | Số bảng transaction đã lock theo metadata InnoDB. |
-| `trx_lock_structs` | Số cấu trúc lock mà transaction đang giữ/quản lý. |
-| `trx_lock_memory_bytes` | Lượng bộ nhớ được dùng cho cấu trúc lock của transaction, nếu cột có mặt. |
-| `trx_rows_locked` | Số row đang bị lock theo metadata InnoDB. Đây là chỉ số engine báo cáo, không nên diễn giải như số row duy nhất đã xác minh tuyệt đối. |
-| `trx_rows_modified` | Số row đã được transaction sửa đổi. |
-| `trx_concurrency_tickets` | Số concurrency ticket còn lại nếu cơ chế tương ứng được áp dụng. Thường chỉ cần cho chẩn đoán chuyên sâu. |
-| `trx_isolation_level` | Isolation level của transaction, ví dụ `REPEATABLE READ`. |
-| `trx_unique_checks` | Trạng thái kiểm tra unique index theo transaction (`1` thường là bật). |
-| `trx_foreign_key_checks` | Trạng thái kiểm tra foreign key (`1` thường là bật). |
-| `trx_last_foreign_key_error` | Thông báo lỗi foreign key gần nhất nếu có. |
-| `trx_adaptive_hash_latched` | Cờ liên quan đến adaptive hash index latch theo metadata InnoDB. Chủ yếu dùng cho chẩn đoán chuyên sâu. |
-| `trx_adaptive_hash_timeout` | Trường trạng thái liên quan đến adaptive hash index theo metadata InnoDB. Ý nghĩa cụ thể cần đối chiếu tài liệu phiên bản. |
-| `trx_is_read_only` | Cho biết transaction có được đánh dấu read-only hay không. |
-| `trx_autocommit_non_locking` | Cờ cho trường hợp autocommit read-only không cần lock theo điều kiện InnoDB. |
-| `trx_schedule_weight` | Trọng số scheduling nếu phiên bản MySQL cung cấp; có thể `NULL`. |
+
+| Cột nguồn                    | Ý nghĩa                                                                                                                                |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `trx_id`                     | ID transaction InnoDB. Đây là ID nguồn, không phải PK DBLens.                                                                          |
+| `trx_state`                  | Trạng thái transaction, ví dụ `RUNNING` hoặc `LOCK WAIT`.                                                                              |
+| `trx_started`                | Thời điểm transaction bắt đầu. Dùng để tính tuổi transaction.                                                                          |
+| `trx_requested_lock_id`      | ID lock mà transaction đang chờ, nếu có. Có thể đối chiếu với lock ID nguồn.                                                           |
+| `trx_wait_started`           | Thời điểm bắt đầu chờ lock, nếu đang chờ.                                                                                              |
+| `trx_weight`                 | Trọng số transaction theo cách InnoDB dùng để đánh giá chi phí rollback tương đối; không phải thời gian chờ.                           |
+| `trx_mysql_thread_id`        | MySQL connection/processlist ID gắn với transaction. Khác với Performance Schema `THREAD_ID`.                                          |
+| `trx_query`                  | Query hiện tại của transaction nếu có. Có thể chứa literal nhạy cảm.                                                                   |
+| `trx_operation_state`        | Trạng thái thao tác InnoDB hiện tại nếu có.                                                                                            |
+| `trx_tables_in_use`          | Số bảng transaction đang sử dụng theo metadata InnoDB.                                                                                 |
+| `trx_tables_locked`          | Số bảng transaction đã lock theo metadata InnoDB.                                                                                      |
+| `trx_lock_structs`           | Số cấu trúc lock mà transaction đang giữ/quản lý.                                                                                      |
+| `trx_lock_memory_bytes`      | Lượng bộ nhớ được dùng cho cấu trúc lock của transaction, nếu cột có mặt.                                                              |
+| `trx_rows_locked`            | Số row đang bị lock theo metadata InnoDB. Đây là chỉ số engine báo cáo, không nên diễn giải như số row duy nhất đã xác minh tuyệt đối. |
+| `trx_rows_modified`          | Số row đã được transaction sửa đổi.                                                                                                    |
+| `trx_concurrency_tickets`    | Số concurrency ticket còn lại nếu cơ chế tương ứng được áp dụng. Thường chỉ cần cho chẩn đoán chuyên sâu.                              |
+| `trx_isolation_level`        | Isolation level của transaction, ví dụ `REPEATABLE READ`.                                                                              |
+| `trx_unique_checks`          | Trạng thái kiểm tra unique index theo transaction (`1` thường là bật).                                                                 |
+| `trx_foreign_key_checks`     | Trạng thái kiểm tra foreign key (`1` thường là bật).                                                                                   |
+| `trx_last_foreign_key_error` | Thông báo lỗi foreign key gần nhất nếu có.                                                                                             |
+| `trx_adaptive_hash_latched`  | Cờ liên quan đến adaptive hash index latch theo metadata InnoDB. Chủ yếu dùng cho chẩn đoán chuyên sâu.                                |
+| `trx_adaptive_hash_timeout`  | Trường trạng thái liên quan đến adaptive hash index theo metadata InnoDB. Ý nghĩa cụ thể cần đối chiếu tài liệu phiên bản.             |
+| `trx_is_read_only`           | Cho biết transaction có được đánh dấu read-only hay không.                                                                             |
+| `trx_autocommit_non_locking` | Cờ cho trường hợp autocommit read-only không cần lock theo điều kiện InnoDB.                                                           |
+| `trx_schedule_weight`        | Trọng số scheduling nếu phiên bản MySQL cung cấp; có thể `NULL`.                                                                       |
+
+
+
 
 #### Nguồn bổ sung: `performance_schema.threads`
 
 Không phải mọi cột session đều có trong `innodb_trx`. Nếu cần thread ID, user, host hoặc trạng thái processlist, Collector có thể truy vấn `performance_schema.threads`. Nên lưu kết quả như một raw record riêng hoặc một object nguồn có tên rõ ràng; không nhập nhằng `THREAD_ID` với `PROCESSLIST_ID`.
 
-| Cột nguồn | Ý nghĩa |
-|---|---|
-| `THREAD_ID` | ID nội bộ của thread trong Performance Schema. |
-| `NAME` | Tên instrument/thread, thường giúp phân biệt loại thread. |
-| `TYPE` | Loại thread, ví dụ foreground hoặc background nếu được phiên bản hỗ trợ. |
-| `PROCESSLIST_ID` | ID kết nối client; có thể `NULL` với thread nội bộ. |
-| `PROCESSLIST_USER` | User gắn với session nếu có. |
-| `PROCESSLIST_HOST` | Host/port của client nếu có; có thể là dữ liệu nhạy cảm. |
-| `PROCESSLIST_DB` | Database mặc định của session. |
-| `PROCESSLIST_COMMAND` | Command hiện tại theo processlist. |
-| `PROCESSLIST_TIME` | Thời gian ở command/state hiện tại theo ngữ nghĩa MySQL. |
-| `PROCESSLIST_STATE` | Trạng thái processlist hiện tại. |
-| `PROCESSLIST_INFO` | SQL hiện tại nếu có; cần redaction. |
+
+| Cột nguồn             | Ý nghĩa                                                                  |
+| --------------------- | ------------------------------------------------------------------------ |
+| `THREAD_ID`           | ID nội bộ của thread trong Performance Schema.                           |
+| `NAME`                | Tên instrument/thread, thường giúp phân biệt loại thread.                |
+| `TYPE`                | Loại thread, ví dụ foreground hoặc background nếu được phiên bản hỗ trợ. |
+| `PROCESSLIST_ID`      | ID kết nối client; có thể `NULL` với thread nội bộ.                      |
+| `PROCESSLIST_USER`    | User gắn với session nếu có.                                             |
+| `PROCESSLIST_HOST`    | Host/port của client nếu có; có thể là dữ liệu nhạy cảm.                 |
+| `PROCESSLIST_DB`      | Database mặc định của session.                                           |
+| `PROCESSLIST_COMMAND` | Command hiện tại theo processlist.                                       |
+| `PROCESSLIST_TIME`    | Thời gian ở command/state hiện tại theo ngữ nghĩa MySQL.                 |
+| `PROCESSLIST_STATE`   | Trạng thái processlist hiện tại.                                         |
+| `PROCESSLIST_INFO`    | SQL hiện tại nếu có; cần redaction.                                      |
+
 
 Các cột có sẵn phụ thuộc MySQL version. Chỉ lưu những cột mà truy vấn thực tế trả về.
 
@@ -373,12 +421,16 @@ Các cột có sẵn phụ thuộc MySQL version. Chỉ lưu những cột mà t
 
 **Dùng để:** Đối chiếu statement với thread/event, lấy SQL text/digest, thời gian và các bộ đếm statement.
 
-| Cột DBLens | Ý nghĩa |
-|---|---|
-| `id` | ID dòng Raw nội bộ DBLens. |
-| `snapshot_id` | Snapshot chứa dòng raw. |
-| `payload` | JSONB gồm các cột nguồn statement. |
+
+| Cột DBLens     | Ý nghĩa                             |
+| -------------- | ----------------------------------- |
+| `id`           | ID dòng Raw nội bộ DBLens.          |
+| `snapshot_id`  | Snapshot chứa dòng raw.             |
+| `payload`      | JSONB gồm các cột nguồn statement.  |
 | `collected_at` | Thời điểm DBLens ghi nhận dòng này. |
+
+
+
 
 #### Schema `payload` — `performance_schema.events_statements_current`
 
@@ -407,26 +459,28 @@ Ví dụ minh họa các cột thường dùng:
 }
 ```
 
-| Cột nguồn | Ý nghĩa |
-|---|---|
-| `THREAD_ID` | Performance Schema thread thực hiện statement. |
-| `EVENT_ID` | ID statement event trong thread. Kết hợp với `THREAD_ID` để đối chiếu event. |
-| `END_EVENT_ID` | Event ID kết thúc nếu đã có; có thể `NULL` với event đang chạy. |
-| `EVENT_NAME` | Tên instrument, ví dụ loại statement đang thực thi. |
-| `CURRENT_SCHEMA` | Schema mặc định khi statement chạy. |
-| `SQL_TEXT` | SQL text hiện tại. Có thể bị cắt, không có hoặc chứa literal nhạy cảm. |
-| `DIGEST` | Digest/hash của statement đã chuẩn hóa nếu được tạo. |
-| `DIGEST_TEXT` | Dạng SQL đã chuẩn hóa, thường thay literal bằng placeholder. |
-| `TIMER_START` | Giá trị timer bắt đầu của Performance Schema; không phải timestamp wall-clock thông thường. |
-| `TIMER_END` | Giá trị timer kết thúc nếu event đã hoàn tất. |
-| `TIMER_WAIT` | Thời lượng theo đơn vị timer của Performance Schema. Không tự giả định đơn vị là millisecond. |
-| `LOCK_TIME` | Bộ đếm thời gian lock do bảng statement event báo cáo; diễn giải theo tài liệu MySQL tương ứng. |
-| `ROWS_EXAMINED` | Số row statement đã kiểm tra nếu có. |
-| `ROWS_AFFECTED` | Số row bị statement ảnh hưởng nếu có. |
-| `ROWS_SENT` | Số row được trả về/gửi đi nếu có. |
-| `MYSQL_ERRNO` | Mã lỗi MySQL nếu nguồn cung cấp. |
-| `RETURNED_SQLSTATE` | SQLSTATE được trả về nếu có. |
-| `MESSAGE_TEXT` | Nội dung thông báo nếu có; có thể chứa dữ liệu nhạy cảm. |
+
+| Cột nguồn           | Ý nghĩa                                                                                         |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| `THREAD_ID`         | Performance Schema thread thực hiện statement.                                                  |
+| `EVENT_ID`          | ID statement event trong thread. Kết hợp với `THREAD_ID` để đối chiếu event.                    |
+| `END_EVENT_ID`      | Event ID kết thúc nếu đã có; có thể `NULL` với event đang chạy.                                 |
+| `EVENT_NAME`        | Tên instrument, ví dụ loại statement đang thực thi.                                             |
+| `CURRENT_SCHEMA`    | Schema mặc định khi statement chạy.                                                             |
+| `SQL_TEXT`          | SQL text hiện tại. Có thể bị cắt, không có hoặc chứa literal nhạy cảm.                          |
+| `DIGEST`            | Digest/hash của statement đã chuẩn hóa nếu được tạo.                                            |
+| `DIGEST_TEXT`       | Dạng SQL đã chuẩn hóa, thường thay literal bằng placeholder.                                    |
+| `TIMER_START`       | Giá trị timer bắt đầu của Performance Schema; không phải timestamp wall-clock thông thường.     |
+| `TIMER_END`         | Giá trị timer kết thúc nếu event đã hoàn tất.                                                   |
+| `TIMER_WAIT`        | Thời lượng theo đơn vị timer của Performance Schema. Không tự giả định đơn vị là millisecond.   |
+| `LOCK_TIME`         | Bộ đếm thời gian lock do bảng statement event báo cáo; diễn giải theo tài liệu MySQL tương ứng. |
+| `ROWS_EXAMINED`     | Số row statement đã kiểm tra nếu có.                                                            |
+| `ROWS_AFFECTED`     | Số row bị statement ảnh hưởng nếu có.                                                           |
+| `ROWS_SENT`         | Số row được trả về/gửi đi nếu có.                                                               |
+| `MYSQL_ERRNO`       | Mã lỗi MySQL nếu nguồn cung cấp.                                                                |
+| `RETURNED_SQLSTATE` | SQLSTATE được trả về nếu có.                                                                    |
+| `MESSAGE_TEXT`      | Nội dung thông báo nếu có; có thể chứa dữ liệu nhạy cảm.                                        |
+
 
 Đây là danh sách cột đại diện để phục vụ chẩn đoán, không phải bảo đảm mọi cột đều tồn tại trong mọi bảng statement event. Kiểm tra schema thực tế của nguồn được dùng.
 
@@ -440,6 +494,8 @@ Ví dụ minh họa các cột thường dùng:
 
 ---
 
+
+
 ## 6. Layer 2 — Normalized Store
 
 Layer 2 chuyển các cột nguồn thành mô hình domain thống nhất, giúp Analyzer không phụ thuộc trực tiếp vào schema MySQL.
@@ -450,18 +506,20 @@ Layer 2 chuyển các cột nguồn thành mô hình domain thống nhất, giú
 
 **Nguồn:** Normalize từ `raw_lock_records.payload`, có thể đối chiếu với `raw_wait_records`.
 
-| Cột | Ý nghĩa |
-|---|---|
-| `id` | Khóa chính nội bộ DBLens. |
-| `snapshot_id` | Snapshot ghi nhận lock. |
-| `source_lock_id` | ID lock ở nguồn như `ENGINE_LOCK_ID`; chỉ dùng trong ngữ cảnh source/snapshot. |
-| `thread_id` | Thread ID nguồn nếu có; không nhầm với connection ID. |
+
+| Cột              | Ý nghĩa                                                                                   |
+| ---------------- | ----------------------------------------------------------------------------------------- |
+| `id`             | Khóa chính nội bộ DBLens.                                                                 |
+| `snapshot_id`    | Snapshot ghi nhận lock.                                                                   |
+| `source_lock_id` | ID lock ở nguồn như `ENGINE_LOCK_ID`; chỉ dùng trong ngữ cảnh source/snapshot.            |
+| `thread_id`      | Thread ID nguồn nếu có; không nhầm với connection ID.                                     |
 | `transaction_id` | Tham chiếu tùy chọn đến transaction normalized. Nếu tồn tại, cần FK thật trong migration. |
-| `object_schema` | Schema chứa object bị lock. |
-| `object_name` | Tên bảng/object bị lock. |
-| `index_name` | Index liên quan nếu có. |
-| `lock_mode` | Lock mode đã chuẩn hóa; giá trị gốc vẫn nằm trong Raw. |
-| `lock_status` | Trạng thái đã chuẩn hóa; giá trị gốc vẫn nằm trong Raw. |
+| `object_schema`  | Schema chứa object bị lock.                                                               |
+| `object_name`    | Tên bảng/object bị lock.                                                                  |
+| `index_name`     | Index liên quan nếu có.                                                                   |
+| `lock_mode`      | Lock mode đã chuẩn hóa; giá trị gốc vẫn nằm trong Raw.                                    |
+| `lock_status`    | Trạng thái đã chuẩn hóa; giá trị gốc vẫn nằm trong Raw.                                   |
+
 
 Đề xuất: `PRIMARY KEY (id)`, `UNIQUE (snapshot_id, id)` để hỗ trợ composite FK, và index `(snapshot_id, object_schema, object_name)`.
 
@@ -471,17 +529,19 @@ Layer 2 chuyển các cột nguồn thành mô hình domain thống nhất, giú
 
 **Nguồn:** Normalize từ `raw_transaction_records`; có thể bổ sung thông tin từ `raw_statement_records`.
 
-| Cột | Ý nghĩa |
-|---|---|
-| `id` | Khóa chính nội bộ DBLens. |
-| `snapshot_id` | Snapshot quan sát transaction. |
-| `thread_id` | Performance Schema thread ID ở nguồn nếu biết. |
-| `connection_id` | Client connection/processlist ID ở nguồn; có thể được tái sử dụng. |
-| `source_transaction_id` | Transaction ID của database nguồn. Cần bảo toàn độ chính xác. |
-| `state` | Trạng thái transaction đã chuẩn hóa. |
-| `started_at` | Thời điểm transaction bắt đầu nếu có. |
-| `wait_started_at` | Thời điểm bắt đầu chờ lock nếu có. |
-| `current_query` | SQL hiện tại nếu được phép thu thập; cần redaction và kiểm soát quyền truy cập. |
+
+| Cột                     | Ý nghĩa                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| `id`                    | Khóa chính nội bộ DBLens.                                                       |
+| `snapshot_id`           | Snapshot quan sát transaction.                                                  |
+| `thread_id`             | Performance Schema thread ID ở nguồn nếu biết.                                  |
+| `connection_id`         | Client connection/processlist ID ở nguồn; có thể được tái sử dụng.              |
+| `source_transaction_id` | Transaction ID của database nguồn. Cần bảo toàn độ chính xác.                   |
+| `state`                 | Trạng thái transaction đã chuẩn hóa.                                            |
+| `started_at`            | Thời điểm transaction bắt đầu nếu có.                                           |
+| `wait_started_at`       | Thời điểm bắt đầu chờ lock nếu có.                                              |
+| `current_query`         | SQL hiện tại nếu được phép thu thập; cần redaction và kiểm soát quyền truy cập. |
+
 
 Đề xuất: `PRIMARY KEY (id)`, `UNIQUE (snapshot_id, id)`, index `(snapshot_id, started_at)` và có thể index `(snapshot_id, connection_id)`.
 
@@ -491,17 +551,20 @@ Layer 2 chuyển các cột nguồn thành mô hình domain thống nhất, giú
 
 **Nguồn:** Normalize từ `raw_wait_records`, liên kết với lock và transaction trong cùng snapshot.
 
-| Cột | Ý nghĩa |
-|---|---|
-| `id` | Khóa chính nội bộ DBLens. |
-| `snapshot_id` | Snapshot ghi nhận quan hệ wait. |
-| `requested_lock_id` | FK đến lock đang được yêu cầu. |
-| `blocking_lock_id` | FK đến lock đang chặn. |
-| `waiter_transaction_id` | FK đến transaction đang chờ. |
-| `blocker_transaction_id` | FK đến transaction đang giữ lock chặn. |
-| `observed_at` | Thời điểm quan sát quan hệ, không nhất thiết là thời điểm wait bắt đầu. |
+
+| Cột                      | Ý nghĩa                                                                 |
+| ------------------------ | ----------------------------------------------------------------------- |
+| `id`                     | Khóa chính nội bộ DBLens.                                               |
+| `snapshot_id`            | Snapshot ghi nhận quan hệ wait.                                         |
+| `requested_lock_id`      | FK đến lock đang được yêu cầu.                                          |
+| `blocking_lock_id`       | FK đến lock đang chặn.                                                  |
+| `waiter_transaction_id`  | FK đến transaction đang chờ.                                            |
+| `blocker_transaction_id` | FK đến transaction đang giữ lock chặn.                                  |
+| `observed_at`            | Thời điểm quan sát quan hệ, không nhất thiết là thời điểm wait bắt đầu. |
+
 
 **Ràng buộc quan trọng:** Nên dùng composite FK:
+
 - `(snapshot_id, requested_lock_id) -> normalized_locks(snapshot_id, id)`
 - `(snapshot_id, blocking_lock_id) -> normalized_locks(snapshot_id, id)`
 - `(snapshot_id, waiter_transaction_id) -> normalized_transactions(snapshot_id, id)`
@@ -511,7 +574,11 @@ Như vậy, một wait không thể tham chiếu nhầm lock/transaction thuộc
 
 ---
 
+
+
 ## 7. Layer 3 — Analysis Store
+
+
 
 ### 7.1. `blocking_graphs`
 
@@ -519,11 +586,13 @@ Như vậy, một wait không thể tham chiếu nhầm lock/transaction thuộc
 
 **Nguồn:** Analyzer tạo từ Layer 2.
 
-| Cột | Ý nghĩa |
-|---|---|
-| `id` | ID graph/lần phân tích do DBLens sinh ra. |
-| `snapshot_id` | Snapshot được phân tích. |
-| `analyzed_at` | Thời điểm graph được tạo. |
+
+| Cột           | Ý nghĩa                                   |
+| ------------- | ----------------------------------------- |
+| `id`          | ID graph/lần phân tích do DBLens sinh ra. |
+| `snapshot_id` | Snapshot được phân tích.                  |
+| `analyzed_at` | Thời điểm graph được tạo.                 |
+
 
 Nên cân nhắc thêm `analyzer_version` để biết logic nào đã tạo ra kết quả.
 
@@ -533,13 +602,17 @@ Nên cân nhắc thêm `analyzer_version` để biết logic nào đã tạo ra 
 
 **Nguồn:** Suy ra từ normalized entities và các quan hệ wait.
 
-| Cột | Ý nghĩa |
-|---|---|
-| `id` | ID node nội bộ. |
-| `graph_id` | FK đến graph chứa node. |
-| `node_type` | Loại node, ví dụ `transaction`, `session`, `lock`. |
-| `external_id` | Tham chiếu đến entity normalized hoặc ID nguồn. Nên dùng tham chiếu có type rõ ràng nếu có thể. |
-| `attributes` | JSONB chứa thuộc tính phục vụ hiển thị như tuổi transaction, tên object hoặc query đã che dữ liệu. |
+
+| Cột           | Ý nghĩa                                                                                            |
+| ------------- | -------------------------------------------------------------------------------------------------- |
+| `id`          | ID node nội bộ.                                                                                    |
+| `graph_id`    | FK đến graph chứa node.                                                                            |
+| `node_type`   | Loại node, ví dụ `transaction`, `session`, `lock`.                                                 |
+| `external_id` | Tham chiếu đến entity normalized hoặc ID nguồn. Nên dùng tham chiếu có type rõ ràng nếu có thể.    |
+| `attributes`  | JSONB chứa thuộc tính phục vụ hiển thị như tuổi transaction, tên object hoặc query đã che dữ liệu. |
+
+
+
 
 ### 7.3. `blocking_graph_edges`
 
@@ -547,13 +620,15 @@ Nên cân nhắc thêm `analyzer_version` để biết logic nào đã tạo ra 
 
 **Nguồn:** Suy ra từ `normalized_lock_waits`.
 
-| Cột | Ý nghĩa |
-|---|---|
-| `id` | ID edge nội bộ. |
-| `graph_id` | FK đến graph. |
-| `waiter_node_id` | Node đang chờ. |
-| `blocker_node_id` | Node đang chặn. |
-| `edge_type` | Loại quan hệ, ví dụ `blocks`. |
+
+| Cột               | Ý nghĩa                       |
+| ----------------- | ----------------------------- |
+| `id`              | ID edge nội bộ.               |
+| `graph_id`        | FK đến graph.                 |
+| `waiter_node_id`  | Node đang chờ.                |
+| `blocker_node_id` | Node đang chặn.               |
+| `edge_type`       | Loại quan hệ, ví dụ `blocks`. |
+
 
 Quy ước nên dùng khi hiển thị là mũi tên `blocker -> waiter`. Tên cột mô tả vai trò, vì vậy code UI cần tuân theo cùng quy ước.
 
@@ -563,19 +638,23 @@ Quy ước nên dùng khi hiển thị là mũi tên `blocker -> waiter`. Tên c
 
 **Nguồn:** Analyzer dựa trên normalized data và blocking graph.
 
-| Cột | Ý nghĩa |
-|---|---|
-| `id` | ID finding nội bộ. |
-| `graph_id` | Graph làm bằng chứng cho finding. |
-| `rule_code` | Mã rule ổn định, ví dụ `LONG_RUNNING_BLOCKER`. |
-| `severity` | Mức độ, ví dụ `info`, `warning`, `critical`. |
-| `title` | Tiêu đề ngắn gọn. |
-| `evidence` | JSONB chứa bằng chứng như transaction blocker, số waiter hoặc thời gian chờ. |
-| `created_at` | Thời điểm tạo finding. |
+
+| Cột          | Ý nghĩa                                                                      |
+| ------------ | ---------------------------------------------------------------------------- |
+| `id`         | ID finding nội bộ.                                                           |
+| `graph_id`   | Graph làm bằng chứng cho finding.                                            |
+| `rule_code`  | Mã rule ổn định, ví dụ `LONG_RUNNING_BLOCKER`.                               |
+| `severity`   | Mức độ, ví dụ `info`, `warning`, `critical`.                                 |
+| `title`      | Tiêu đề ngắn gọn.                                                            |
+| `evidence`   | JSONB chứa bằng chứng như transaction blocker, số waiter hoặc thời gian chờ. |
+| `created_at` | Thời điểm tạo finding.                                                       |
+
 
 Có thể bổ sung `description`, `recommendation`, `rule_version` và khóa chống trùng khi tiến tới production.
 
 ---
+
+
 
 ## 8. ERD tổng quan
 
@@ -600,12 +679,16 @@ erDiagram
     BLOCKING_GRAPH_NODES ||--o{ BLOCKING_GRAPH_EDGES : endpoint
 ```
 
+
+
 ---
+
+
 
 ## 9. Quy trình xử lý dữ liệu
 
 1. **Tạo snapshot:** Collector insert `snapshots` với `status = 'collecting'`.
-2. **Thu thập dữ liệu:** Query các bảng MySQL nguồn và lưu mỗi dòng vào bảng `raw_*` tương ứng. `payload` giữ các cột nguồn; `snapshot_id` và `collected_at` nằm ở cột riêng.
+2. **Thu thập dữ liệu:** Query các bảng MySQL nguồn và lưu mỗi dòng vào bảng `raw_`* tương ứng. `payload` giữ các cột nguồn; `snapshot_id` và `collected_at` nằm ở cột riêng.
 3. **Kết thúc collection:** Cập nhật `capture_finished_at`, chuyển trạng thái thành `collected`. Nếu thất bại, ghi lỗi an toàn và chuyển sang `failed`.
 4. **Nhận snapshot để normalize:** Worker dùng cơ chế đồng bộ an toàn, ví dụ transaction với `FOR UPDATE SKIP LOCKED`.
 5. **Normalize:** Tạo `normalized_locks`, `normalized_transactions`, `normalized_lock_waits`.
@@ -613,6 +696,8 @@ erDiagram
 7. **Analyze:** Tạo graph, node, edge và finding.
 8. **Phục vụ API/UI:** Ưu tiên đọc Layer 2/3; giới hạn quyền truy cập Layer 1.
 9. **Retention:** Xóa snapshot hết hạn và các bản ghi con theo chính sách đã định.
+
+
 
 ### Idempotency và retry
 
@@ -623,6 +708,8 @@ erDiagram
 - Nếu collection và normalization có vòng đời độc lập, nên tách trạng thái thay vì dồn vào một cột `status`.
 
 ---
+
+
 
 ## 10. Bảo mật và retention
 
@@ -637,15 +724,21 @@ erDiagram
 
 ---
 
+
+
 ## 11. Tương thích phiên bản
 
-| Mục tiêu | Cách tiếp cận |
-|---|---|
-| MySQL 8.0+ | Dùng `performance_schema.data_locks`, `performance_schema.data_lock_waits`, và metadata transaction/session/statement phù hợp. |
-| MySQL 5.7 | Dùng adapter riêng cho các view lock cũ như `information_schema.innodb_locks` và `information_schema.innodb_lock_waits`; xác minh theo minor version. |
-| PostgreSQL trong tương lai | Collector riêng dùng `pg_locks`, `pg_stat_activity` và metadata liên quan. Chỉ ánh xạ sang Layer 2 khi ngữ nghĩa phù hợp; giữ trường đặc thù ở Raw. |
+
+| Mục tiêu                   | Cách tiếp cận                                                                                                                                         |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MySQL 8.0+                 | Dùng `performance_schema.data_locks`, `performance_schema.data_lock_waits`, và metadata transaction/session/statement phù hợp.                        |
+| MySQL 5.7                  | Dùng adapter riêng cho các view lock cũ như `information_schema.innodb_locks` và `information_schema.innodb_lock_waits`; xác minh theo minor version. |
+| PostgreSQL trong tương lai | Collector riêng dùng `pg_locks`, `pg_stat_activity` và metadata liên quan. Chỉ ánh xạ sang Layer 2 khi ngữ nghĩa phù hợp; giữ trường đặc thù ở Raw.   |
+
 
 ---
+
+
 
 ## 12. Ví dụ comment trong migration PostgreSQL
 
@@ -673,6 +766,8 @@ Nên bổ sung `COMMENT ON COLUMN` cho từng cột dựa trên data dictionary 
 
 ---
 
+
+
 ## 13. Các quyết định cần chốt trước khi viết migration production
 
 1. `raw_transaction_records` lưu riêng từng dòng `innodb_trx`, hay ghép với thread metadata. Khuyến nghị MVP: lưu từng nguồn riêng để giữ provenance rõ ràng.
@@ -685,17 +780,22 @@ Nên bổ sung `COMMENT ON COLUMN` cho từng cột dựa trên data dictionary 
 
 ---
 
+
+
 ## 14. Thuật ngữ
 
-| Thuật ngữ | Ý nghĩa |
-|---|---|
-| Source | Database được đăng ký để DBLens giám sát. |
-| Snapshot | Một lần/khoảng thời gian thu thập đại diện cho trạng thái được quan sát. |
-| Raw record | Dòng dữ liệu nguồn được lưu với ít biến đổi nhất có thể. |
-| Normalized entity | Entity domain DBLens được ánh xạ từ dữ liệu nguồn. |
-| Waiter | Transaction/session đang chờ lock. |
-| Blocker | Transaction/session đang giữ lock khiến waiter chưa thể tiếp tục. |
-| Blocking graph | Đồ thị các entity và quan hệ blocking trong một snapshot. |
-| Finding | Phát hiện chẩn đoán do rule tạo ra, có bằng chứng từ graph/normalized data. |
-| Source ID | Định danh do database nguồn cung cấp; có thể không duy nhất toàn cục hoặc không ổn định. |
-| DBLens ID | Định danh nội bộ do DBLens sinh ra. |
+
+| Thuật ngữ         | Ý nghĩa                                                                                  |
+| ----------------- | ---------------------------------------------------------------------------------------- |
+| Source            | Database được đăng ký để DBLens giám sát.                                                |
+| Snapshot          | Một lần/khoảng thời gian thu thập đại diện cho trạng thái được quan sát.                 |
+| Raw record        | Dòng dữ liệu nguồn được lưu với ít biến đổi nhất có thể.                                 |
+| Normalized entity | Entity domain DBLens được ánh xạ từ dữ liệu nguồn.                                       |
+| Waiter            | Transaction/session đang chờ lock.                                                       |
+| Blocker           | Transaction/session đang giữ lock khiến waiter chưa thể tiếp tục.                        |
+| Blocking graph    | Đồ thị các entity và quan hệ blocking trong một snapshot.                                |
+| Finding           | Phát hiện chẩn đoán do rule tạo ra, có bằng chứng từ graph/normalized data.              |
+| Source ID         | Định danh do database nguồn cung cấp; có thể không duy nhất toàn cục hoặc không ổn định. |
+| DBLens ID         | Định danh nội bộ do DBLens sinh ra.                                                      |
+
+
