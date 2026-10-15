@@ -15,11 +15,20 @@ func main() {
 	sourceDatasourceName := os.Getenv("SOURCE_DATASOURCE_NAME")
 	targetDatasourceName := os.Getenv("TARGET_DATASOURCE_NAME")
 
-	mysqlCollectorInstance := collector.Collector{}.GetInstace(context.Background(), collector.CollectorConfig{
-		SourceDriverName:     "mysql",
+	// mysqlCollectorInstance := collector.Collector{}.GetInstace(context.Background(), collector.CollectorConfig{
+	// 	SourceDriverName:     "mysql",
+	// 	SourceDatasourceName: sourceDatasourceName,
+	// 	SourceHost:           "192.168.1.1",
+	// 	SourceName:           "dblens",
+	// 	TargetDriverName:     "pgx",
+	// 	TargetDatasourceName: targetDatasourceName,
+	// })
+
+	mariaCollectorInstance := collector.Collector{}.GetInstace(context.Background(), collector.CollectorConfig{
+		SourceDriverName:     "maria",
 		SourceDatasourceName: sourceDatasourceName,
-		SourceHost:           "192.168.1.1",
-		SourceName:           "dblens",
+		SourceHost:           "vn production",
+		SourceName:           "prod vn",
 		TargetDriverName:     "pgx",
 		TargetDatasourceName: targetDatasourceName,
 	})
@@ -29,8 +38,8 @@ func main() {
 
 	c := cron.New(cron.WithSeconds())
 
-	_, err := c.AddFunc("*/120 * * * * *", func() {
-		mysqlCollectorInstance.Run()
+	_, err := c.AddFunc("@every 2m", func() {
+		mariaCollectorInstance.Run()
 	})
 	if err != nil {
 		panic(err)

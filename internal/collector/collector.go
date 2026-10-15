@@ -9,6 +9,13 @@ import (
 	"github.com/cndvn/dblens/internal/targetdb"
 )
 
+type SourceDriverName string
+
+var (
+	MARIA_SOURCE_DRIVER_NAME = "maria"
+	MYSQL_SOURCE_DRIVER_NAME = "mysql"
+)
+
 type CollectorConfig struct {
 	SourceDriverName     string
 	SourceDatasourceName string
@@ -98,7 +105,7 @@ func (t *Collector) Run() {
 }
 
 func (t *Collector) loadDataCollection(snapshotId string, payload map[string]string) error {
-	if t.config.SourceDriverName == "mysql" {
+	if t.config.SourceDriverName == "mysql" || t.config.SourceDriverName == "maria" {
 		err := t.targetConnectionManager.InsertLockRecords(snapshotId, payload["payloadDataLocks"])
 		if err != nil {
 			return fmt.Errorf("failed to insert lock records: %v", err)
